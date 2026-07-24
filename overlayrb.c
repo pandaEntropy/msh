@@ -69,7 +69,6 @@ void free_mem(Memento *mem);
 char *trash(const char *lower_path);
 int fcopy(const char *src, const char *dest);
 void get_lowpath(const char *up_path, char *low_path, size_t low_sz, const char *base, const char *upperdir);
-int is_noise(const char *path);
 int drop_root();
 
 int init_ns(uid_t uid, gid_t gid){
@@ -160,8 +159,7 @@ int init_child_ovl(uid_t uid, gid_t gid){
 
 /*
  * TODO
- * 1. Ignore undo for commands like ls by ignoring when memento top pointer is -1 (there was nothing done)
- * 2. Clean code, remove anything unused
+ * 2. Add undo for cd
  * 3. What to do with mount points like /dev or /sys ? Just bind them? But that would require iterating anda also no overlay then.
  */
 
@@ -209,7 +207,12 @@ void reap_overlay(){
     reap_dir(upperdir_root, upperdir_root, "/", holmem);
     reap_dir(upperdir_home, upperdir_home, "/home", holmem);
 
-    push_ustack(holmem);
+    if(holmem->top >= 0){
+        push_ustack(holmem);
+    }
+    else{
+        free_holmem(holmem);
+    }
 }
 
 void reap_dir(const char *dir_path, const char *upperdir, const char *base, HollowMemento *holmem){
@@ -219,10 +222,6 @@ void reap_dir(const char *dir_path, const char *upperdir, const char *base, Holl
     while((entry = readdir(dir)) != NULL){
         char abs_path[MAX_FNAME];
         snprintf(abs_path, MAX_FNAME, "%s/%s", dir_path, entry->d_name);
-
-        if(is_noise(abs_path)){
-            continue;
-        }
 
         if(entry->d_type == DT_DIR){
             if(strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0){
@@ -298,7 +297,6 @@ Memento *create_mem(Action action, const char *upper_path, const char *upperdir,
     mem->action = action;
     switch(action){
         case F_CREATE:
-            fprintf(stderr, "create mem\n");
             return mem;
 
         case DIR_CREATE:
@@ -407,12 +405,13 @@ int commit(const char *upper_path, Action action, const char *upperdir, const ch
 int undo(char **noop){
     (void)noop;
 
+    if(utop < 0){
+        return 1;
+    }
+
     HollowMemento *holmem = ustack[utop];
 
-    fprintf(stderr, "triggered undo utop = %d, holtop = %d\n", utop, holmem->top);
     while(holmem->top >= 0){
-        fprintf(stderr, "undo loop\n");
-        fprintf(stderr, "path: %s\n", holmem->mementos[holmem->top]->path);
         undo_mem(holmem->mementos[holmem->top]);
         holmem->top--;
     }
@@ -572,24 +571,6 @@ void get_lowpath(const char *up_path, char *low_path, size_t low_sz, const char 
         snprintf(low_path, low_sz, "%s%s", base, up_path + strlen(upperdir));
     }
 
-}
-
-int is_noise(const char *path){
-    char *ignored[] = {
-        "/.local/share/nvim/mason",
-        "/.local/share/baloo",
-        "/.local/share/Trash",
-        "/.cache",
-        "/tmp",
-        NULL
-    };
-
-    for(int i = 0; ignored[i] != NULL; i++){
-        if (strstr(path, ignored[i]) != NULL){
-            return 1;
-        }
-    }
-    return 0;
 }
 
 int drop_root(){
