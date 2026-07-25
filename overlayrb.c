@@ -12,6 +12,7 @@
 #include <sys/sendfile.h>
 #include <sys/mount.h>
 #include <limits.h>
+#include <pwd.h>
 
 #define MAX_FNAME 256
 #define MAX_USTACK 30
@@ -84,20 +85,6 @@ int init_ns(uid_t uid, gid_t gid){
         return 1;
     }
 
-    int fd = open("/proc/self/setgroups", O_WRONLY);
-    write(fd, "deny", 4);
-    close(fd);
-
-    snprintf(buf, sizeof(buf), "0 %d 1", uid);
-    fd = open("/proc/self/uid_map", O_WRONLY);
-    write(fd, buf, strlen(buf));
-    close(fd);
-
-    snprintf(buf, sizeof(buf), "0 %d 1", gid);
-    fd = open("/proc/self/gid_map", O_WRONLY);
-    write(fd, buf, strlen(buf));
-    close(fd);
-
     return 0;
 }
 
@@ -133,19 +120,26 @@ int init_child_ovl(uid_t uid, gid_t gid){
 
     if(mount("overlay", home_target, "overlay", 0, opts_home) != 0){
         perror("hsh: failed to mount home overlay");
+        return 1;
     }
 
     mount("/proc", "/home/ilya/.local/share/hsh/merged/proc", NULL, MS_BIND | MS_REC, NULL);
     mount("/dev", "/home/ilya/.local/share/hsh/merged/dev", NULL, MS_BIND | MS_REC, NULL);
     mount("/sys", "/home/ilya/.local/share/hsh/merged/sys", NULL, MS_BIND | MS_REC, NULL);
 
-    if(chdir(mergeddir) != 0 || chroot(".") != 0){
+    if(chdir(mergeddir) != 0){
+        fprintf(stderr, "hsh: failed to cd into merged directory\n");
+        return 1;
+    }
+
+    if(chroot(".") != 0){
         fprintf(stderr, "hsh: chroot failed\n");
         return 1;
     }
 
     if( chdir(cwd_buf) != 0){
         fprintf(stderr, "failed to chdir into pwd\n");
+        return 1;
     }
     setenv("PWD", cwd_buf, 1);
 
@@ -159,8 +153,7 @@ int init_child_ovl(uid_t uid, gid_t gid){
 
 /*
  * TODO
- * 2. Add undo for cd
- * 3. What to do with mount points like /dev or /sys ? Just bind them? But that would require iterating anda also no overlay then.
+ *1. Learn mroe about pseudo filesystems, how they work. and what are they used for. like proc
  */
 
 int init_ovl_dirs(){
@@ -172,7 +165,17 @@ int init_ovl_dirs(){
 
     srand(time(NULL));
 
-    char *home = getenv("HOME");
+    char *home;
+    char *sudo_user = getenv("SUDO_USER");
+    struct passwd *pw = getpwnam(sudo_user);
+    if(pw && pw->pw_dir){
+        home = pw->pw_dir;
+    }
+    else{
+        fprintf(stderr, "hsh: failed to get home directory\n");
+        return 1;
+    }
+
     if(home != NULL){
         char shell_dir[PATH_MAX];
         snprintf(shell_dir, sizeof(shell_dir), "%s/.local/share/hsh", home);
@@ -286,7 +289,7 @@ Action find_action(const char *upper_path, const char *upperdir, const char *bas
 }
 
 Memento *create_mem(Action action, const char *upper_path, const char *upperdir, const char *base){
-    Memento *mem = malloc(sizeof(Memento));
+    Memento *mem = calloc(1, sizeof(Memento));
 
     size_t lower_sz = strlen(upper_path);
     char lower_path[lower_sz];
@@ -424,7 +427,6 @@ int undo(char **noop){
 void undo_mem(Memento *mem){
     switch(mem->action){
         case F_CREATE:
-            fprintf(stderr, "%s\n", mem->path);
             unlink(mem->path);
             break;
 
@@ -514,6 +516,10 @@ void free_holmem(HollowMemento *holmem){
 }
 
 void free_mem(Memento *mem){
+    if(mem->path != NULL){
+        unlink(mem->tpath);
+    }
+
     free(mem->path);
     free(mem->tpath);
     free(mem);
@@ -570,7 +576,6 @@ void get_lowpath(const char *up_path, char *low_path, size_t low_sz, const char 
     else{
         snprintf(low_path, low_sz, "%s%s", base, up_path + strlen(upperdir));
     }
-
 }
 
 int drop_root(){
@@ -602,4 +607,10 @@ int drop_root(){
     }
 
     return 0;
+}
+
+void ovl_cleanup(){
+    while(utop >= 0){
+        pop_ustack();
+    }
 }

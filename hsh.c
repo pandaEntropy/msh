@@ -244,6 +244,7 @@ int hsh_launch(char **args){
         gid_t gid = getgid();
         if(init_child_ovl(uid, gid) != 0){
             fprintf(stderr, "hsh: failed to init child ovl\n");
+            exit(EXIT_FAILURE);
         }
 
         execvp(args[0], args);
@@ -482,6 +483,12 @@ int handle_redir(char *block, char *out_block){
     pid_t pid = fork();
 
     if(pid == 0){
+
+        if(init_child_ovl(getuid(), getgid()) != 0){
+            fprintf(stderr, "hsh: failed to init child overlay\n");
+            exit(EXIT_FAILURE);
+        }
+
         int fd = open(*out, O_WRONLY | O_TRUNC | O_CREAT, 0644);
         if(fd < 0){
             perror("hsh: failed to open file");
@@ -511,6 +518,8 @@ int handle_redir(char *block, char *out_block){
 
     int status;
     waitpid(pid, &status, 0);
+
+    reap_overlay();
 
     // Child terminated normally
     if(WIFEXITED(status)){
@@ -601,6 +610,11 @@ int handle_bg(char *block){
     if(pid == 0){
         setpgid(0, 0);
 
+        if(init_child_ovl(getuid(), getgid()) != 0){
+            fprintf(stderr, "hsh: failed to init child overlay\n");
+            exit(EXIT_FAILURE);
+        }
+
         execvp(args[0], args);
         exit(EXIT_FAILURE);
     }
@@ -616,6 +630,8 @@ int handle_bg(char *block){
         signal(SIGTTOU, SIG_IGN);
         tcsetpgrp(STDIN_FILENO, getpgid(0));
     }
+
+    reap_overlay();
 
     if(WIFEXITED(status)){
         return WEXITSTATUS(status);
@@ -636,4 +652,6 @@ void hsh_cleanup(){
     while(waitpid(-1, &stat, WNOHANG) != -1){
         continue;
     }
+
+    ovl_cleanup();
 }

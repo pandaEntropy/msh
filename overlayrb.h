@@ -9,5 +9,6 @@ int init_ovl_dirs();
 void reap_overlay();
 int undo(char **noop);
 
+void ovl_cleanup();
 
 #endif
