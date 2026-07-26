@@ -11,8 +11,6 @@
 #include <sys/sendfile.h>
 #include <fcntl.h>
 
-#include "memento.h"
-
 #define MAX_USTACK 40
 
 typedef enum Cmdtype{
@@ -82,6 +80,30 @@ typedef struct Arena{
     char *root;
 }Arena;
 
+typedef enum MemType{
+    MEM_CREATE,
+    MEM_MOVE,
+    MEM_DELETE,
+    MEM_INTERNAL,
+    MEM_INV
+}MemType;
+
+typedef struct HollowMemento{
+    union{
+        CreateMemento *creatmem;
+        MoveMemento *movmem;
+        DeleteMemento *delmem;
+        InternalMemento *intmem;
+    }mem;
+    MemType memtype;
+}HollowMemento;
+
+int init_memento();
+void create_holmem(char **args, HollowMemento *holmem);
+void push(HollowMemento holmem);
+int undo(char **args);
+void free_holmem(HollowMemento holmem);
+void mem_cleanup();
 
 void push(HollowMemento holmem);
 void get_timestamps(char *name, struct timeval *time);

@@ -1,7 +1,7 @@
 CC = gcc
 
-HSHOBJ = hsh.o memento.o
-DEPFILES = hsh.d memento.d
+HSHOBJ = hsh.o overlayrb.o
+DEPFILES = hsh.d overlayrb.d
 
 CFLAGS = -Wall -Wextra -MD -MP
 
