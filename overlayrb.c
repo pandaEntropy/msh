@@ -71,6 +71,13 @@ int fcopy(const char *src, const char *dest);
 void get_lowpath(const char *up_path, char *low_path, size_t low_sz, const char *base, const char *upperdir);
 int drop_root();
 
+
+
+
+//TODO add teh chown and chroot steps for the SUID to the makefile
+
+
+
 int bind_essential(){
     char bdir[PATH_MAX];
     snprintf(bdir, strlen(mergeddir) + 10, "%s/sys", mergeddir);
@@ -170,6 +177,7 @@ int init_child_ovl(){
         fprintf(stderr, "failed to chdir into pwd\n");
         return 1;
     }
+
     setenv("PWD", cwd_buf, 1);
 
     if(drop_root() != 0){
@@ -205,16 +213,7 @@ void init_ovl_dirs(char *shdir){
 int init_hsh_dirs(){
     srand(time(NULL));
 
-    char *home;
-    char *sudo_user = getenv("SUDO_USER");
-    struct passwd *pw = getpwnam(sudo_user);
-    if(pw && pw->pw_dir){
-        home = pw->pw_dir;
-    }
-    else{
-        fprintf(stderr, "hsh: failed to get home directory\n");
-        return 1;
-    }
+    char *home = getenv("HOME");
 
     char shell_dir[PATH_MAX];
     snprintf(shell_dir, sizeof(shell_dir), "%s/.local/share/hsh", home);
@@ -621,22 +620,8 @@ void get_lowpath(const char *up_path, char *low_path, size_t low_sz, const char 
 }
 
 int drop_root(){
-    char *uidstr = getenv("SUDO_UID");
-    if(uidstr == NULL){
-        fprintf(stderr, "hsh:  faield to get sudo uid\n");
-        return 1;
-    }
-
-    uid_t uid = strtoul(uidstr, NULL, 10);
-
-    char *gidstr = getenv("SUDO_GID");
-    if(gidstr == NULL){
-        fprintf(stderr, "hsh:  faield to get sudo gid\n");
-        return 1;
-    }
-
-    gid_t gid = strtoul(gidstr, NULL, 10);
-
+    uid_t uid = getuid();
+    gid_t gid = getgid();
 
     if(setgid(gid) != 0){
         perror("hsh: setgid failed");

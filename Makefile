@@ -1,3 +1,5 @@
+PREFIX ?= /usr/local
+
 CC = gcc
 
 HSHOBJ = hsh.o overlayrb.o
@@ -13,9 +15,16 @@ hsh: $(HSHOBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+install: hsh
+	install -d $(PREFIX)/bin/
+	install -m 4755 -o root -g root hsh $(PREFIX)/bin/
+
+uninstall:
+	rm -f $(PREFIX)/bin/hsh
+
 clean:
 	rm -f hsh $(HSHOBJ) $(DEPFILES)
 
 -include $(DEPFILES)
 
-.PHONY: clean
+.PHONY: clean all install uninstall
