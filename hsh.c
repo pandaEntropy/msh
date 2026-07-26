@@ -89,7 +89,7 @@ int main(){
 
     init_sigs();
 
-    if(init_ovl_dirs() != 0){
+    if(init_hsh_dirs() != 0){
         fprintf(stderr, "hsh: Failed to start\n");
         return EXIT_FAILURE;
     }
@@ -240,9 +240,7 @@ int hsh_launch(char **args){
         sigaction(SIGTSTP, &sa, NULL);
         sigaction(SIGINT, &sa, NULL);
 
-        uid_t uid = getuid();
-        gid_t gid = getgid();
-        if(init_child_ovl(uid, gid) != 0){
+        if(init_child_ovl() != 0){
             fprintf(stderr, "hsh: failed to init child ovl\n");
             exit(EXIT_FAILURE);
         }
@@ -484,7 +482,7 @@ int handle_redir(char *block, char *out_block){
 
     if(pid == 0){
 
-        if(init_child_ovl(getuid(), getgid()) != 0){
+        if(init_child_ovl() != 0){
             fprintf(stderr, "hsh: failed to init child overlay\n");
             exit(EXIT_FAILURE);
         }
@@ -610,7 +608,7 @@ int handle_bg(char *block){
     if(pid == 0){
         setpgid(0, 0);
 
-        if(init_child_ovl(getuid(), getgid()) != 0){
+        if(init_child_ovl() != 0){
             fprintf(stderr, "hsh: failed to init child overlay\n");
             exit(EXIT_FAILURE);
         }

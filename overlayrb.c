@@ -14,7 +14,6 @@
 #include <limits.h>
 #include <pwd.h>
 
-#define MAX_FNAME 256
 #define MAX_USTACK 30
 
 typedef enum Action{
@@ -39,18 +38,18 @@ typedef struct Memento{
 typedef struct HollowMemento{
     Memento **mementos;
     int top;
-    size_t size;
+    int size;
 }HollowMemento;
 
 char trashdir[PATH_MAX];
 
-char *upperdir_root = "/home/ilya/.local/share/hsh/upper_root";
-char *workdir_root  = "/home/ilya/.local/share/hsh/work_root";
+char *upperdir_root;
+char *workdir_root;
 
-char *upperdir_home = "/home/ilya/.local/share/hsh/upper_home";
-char *workdir_home  = "/home/ilya/.local/share/hsh/work_home";
+char *upperdir_home;
+char *workdir_home;
 
-char *mergeddir = "/home/ilya/.local/share/hsh/merged";
+char *mergeddir;
 
 HollowMemento *ustack[MAX_USTACK];
 int utop = -1;
@@ -72,8 +71,53 @@ int fcopy(const char *src, const char *dest);
 void get_lowpath(const char *up_path, char *low_path, size_t low_sz, const char *base, const char *upperdir);
 int drop_root();
 
-int init_ns(uid_t uid, gid_t gid){
-    char buf[128];
+int bind_essential(){
+    char bdir[PATH_MAX];
+    snprintf(bdir, strlen(mergeddir) + 10, "%s/sys", mergeddir);
+    mkdir(bdir, 0700);
+    if(mount("/sys", bdir, NULL, MS_BIND | MS_REC, NULL) != 0){
+        perror("hsh: failed to bind essential");
+        return 1;
+    }
+
+    snprintf(bdir, strlen(mergeddir) + 10, "%s/dev", mergeddir);
+    mkdir(bdir, 0700);
+    if(mount("/dev", bdir, NULL, MS_BIND | MS_REC, NULL) != 0){
+        perror("hsh: failed to bind essential");
+        return 1;
+    }
+
+    snprintf(bdir, strlen(mergeddir) + 10, "%s/run", mergeddir);
+    mkdir(bdir, 0700);
+    if(mount("/run", bdir, NULL, MS_BIND | MS_REC, NULL) != 0){
+        perror("hsh: failed to bind essential");
+        return 1;
+    }
+
+    snprintf(bdir, strlen(mergeddir) + 10, "%s/tmp", mergeddir);
+    mkdir(bdir, 0700);
+    if(mount("/tmp", bdir, NULL, MS_BIND | MS_REC, NULL) != 0){
+        perror("hsh: failed to bind essential");
+        return 1;
+    }
+
+    snprintf(bdir, strlen(mergeddir) + 10, "%s/proc", mergeddir);
+    mkdir(bdir, 0700);
+    if(mount("/proc", bdir, NULL, MS_BIND | MS_REC, NULL) != 0){
+        perror("hsh: failed to bind essential");
+        return 1;
+    }
+
+    return 0;
+}
+
+int init_child_ovl(){
+    char cwd_buf[PATH_MAX];
+
+    if(getcwd(cwd_buf, sizeof(cwd_buf)) == NULL){
+        fprintf(stderr, "hsh: failed to get current directory\n");
+        return 1;
+    }
 
     if(unshare(CLONE_NEWNS) != 0){
         perror("hsh: unshare failed");
@@ -82,22 +126,6 @@ int init_ns(uid_t uid, gid_t gid){
 
     if(mount(NULL, "/", NULL, MS_PRIVATE | MS_REC, NULL) != 0){
         perror("hsh: failed to make mounts private");
-        return 1;
-    }
-
-    return 0;
-}
-
-int init_child_ovl(uid_t uid, gid_t gid){
-    char cwd_buf[PATH_MAX];
-
-    if(getcwd(cwd_buf, sizeof(cwd_buf)) == NULL){
-        fprintf(stderr, "hsh: failed to get current directory\n");
-        return 1;
-    }
-
-    if(init_ns(uid, gid) != 0){
-        fprintf(stderr, "hsh: failed to setup user namespace\n");
         return 1;
     }
 
@@ -123,9 +151,10 @@ int init_child_ovl(uid_t uid, gid_t gid){
         return 1;
     }
 
-    mount("/proc", "/home/ilya/.local/share/hsh/merged/proc", NULL, MS_BIND | MS_REC, NULL);
-    mount("/dev", "/home/ilya/.local/share/hsh/merged/dev", NULL, MS_BIND | MS_REC, NULL);
-    mount("/sys", "/home/ilya/.local/share/hsh/merged/sys", NULL, MS_BIND | MS_REC, NULL);
+    if(bind_essential() != 0){
+        fprintf(stderr, "hsh: faield to bind essential directories\n");
+        return 1;
+    }
 
     if(chdir(mergeddir) != 0){
         fprintf(stderr, "hsh: failed to cd into merged directory\n");
@@ -151,18 +180,29 @@ int init_child_ovl(uid_t uid, gid_t gid){
     return 0;
 }
 
-/*
- * TODO
- *1. Learn mroe about pseudo filesystems, how they work. and what are they used for. like proc
- */
+void init_ovl_dirs(char *shdir){
+    size_t sz = strlen(shdir) + 20;
 
-int init_ovl_dirs(){
+    upperdir_home = malloc(sz);
+    upperdir_root = malloc(sz);
+    workdir_home = malloc(sz);
+    workdir_root = malloc(sz);
+    mergeddir = malloc(sz);
+
+    snprintf(upperdir_home, sz, "%s/upper_home", shdir);
+    snprintf(upperdir_root, sz, "%s/upper_root", shdir);
+    snprintf(workdir_home, sz, "%s/work_home", shdir);
+    snprintf(workdir_root, sz, "%s/work_root", shdir);
+    snprintf(mergeddir, sz, "%s/merged", shdir);
+
     mkdir(workdir_root, 0700);
     mkdir(workdir_home, 0700);
     mkdir(upperdir_root, 0700);
     mkdir(upperdir_home, 0700);
     mkdir(mergeddir, 0700);
+}
 
+int init_hsh_dirs(){
     srand(time(NULL));
 
     char *home;
@@ -176,28 +216,28 @@ int init_ovl_dirs(){
         return 1;
     }
 
-    if(home != NULL){
-        char shell_dir[PATH_MAX];
-        snprintf(shell_dir, sizeof(shell_dir), "%s/.local/share/hsh", home);
+    char shell_dir[PATH_MAX];
+    snprintf(shell_dir, sizeof(shell_dir), "%s/.local/share/hsh", home);
 
-        struct stat st;
-        if(stat(shell_dir, &st) != 0){
-            mkdir(shell_dir, 0700);
-        }
-        else if(S_ISDIR(st.st_mode) == 0){
-            fprintf(stderr, "hsh: Failed to create shell trash directory. A file with the same name exists\n");
-            return 1;
-        }
+    struct stat st;
+    if(stat(shell_dir, &st) != 0){
+        mkdir(shell_dir, 0700);
+    }
+    else if(S_ISDIR(st.st_mode) == 0){
+        fprintf(stderr, "hsh: Failed to create shell trash directory. A file with the same name exists\n");
+        return 1;
+    }
 
-        snprintf(trashdir, sizeof(trashdir), "%s/.local/share/hsh/trash", home);
+    init_ovl_dirs(shell_dir);
 
-        if(stat(trashdir, &st) != 0){
-            mkdir(trashdir, 0700);
-        }
-        else if(S_ISDIR(st.st_mode) == 0){
-            fprintf(stderr, "hsh: Failed to create shell trash directory. A file with the same name exists\n");
-            return 1;
-        }
+    snprintf(trashdir, sizeof(trashdir), "%s/.local/share/hsh/trash", home);
+
+    if(stat(trashdir, &st) != 0){
+        mkdir(trashdir, 0700);
+    }
+    else if(S_ISDIR(st.st_mode) == 0){
+        fprintf(stderr, "hsh: Failed to create shell trash directory. A file with the same name exists\n");
+        return 1;
     }
 
     return 0;
@@ -223,8 +263,9 @@ void reap_dir(const char *dir_path, const char *upperdir, const char *base, Holl
 
     struct dirent *entry = NULL;
     while((entry = readdir(dir)) != NULL){
-        char abs_path[MAX_FNAME];
-        snprintf(abs_path, MAX_FNAME, "%s/%s", dir_path, entry->d_name);
+        size_t sz = strlen(dir_path) + strlen(entry->d_name) + 5;
+        char abs_path[sz];
+        snprintf(abs_path, sz, "%s/%s", dir_path, entry->d_name);
 
         if(entry->d_type == DT_DIR){
             if(strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0){
@@ -318,7 +359,7 @@ Memento *create_mem(Action action, const char *upper_path, const char *upperdir,
             mem->uid = st.st_uid;
             mem->gid = st.st_gid;
 
-            return mem;;
+            return mem;
         }
 
         case DIR_DELETE:
@@ -536,8 +577,9 @@ char *trash(const char *lower_path){
 
     rname[8] = '\0';
 
-    char tfile[PATH_MAX];
-    snprintf(tfile, sizeof(tfile), "%s/%s", trashdir, rname);
+    size_t sz = strlen(trashdir) + strlen(rname) + 5;
+    char tfile[sz];
+    snprintf(tfile, sz, "%s/%s", trashdir, rname);
 
     if(fcopy(lower_path, tfile) != 0){
         tfile[0] = '\0';
@@ -613,4 +655,10 @@ void ovl_cleanup(){
     while(utop >= 0){
         pop_ustack();
     }
+
+    free(upperdir_home);
+    free(upperdir_root);
+    free(workdir_home);
+    free(workdir_root);
+    free(mergeddir);
 }
