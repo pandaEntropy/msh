@@ -1,3 +1,8 @@
+/*
+ * This module is no longer in use.
+ * Rollback is now completely handled by the overlayrb module.
+ */
+
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -80,7 +80,7 @@ State rollback is achieved by utilizing overlayfs and adapting the Memento desig
 
 Although overlayfs formally supports virtual filesystems in the lower layer, this results in broken behavior. For example, if the user modifies a file in `/proc`, overlayfs copies up the file into upperdir. However, since procfs is a virtual filesystem and files there are interfaces to kernel memory, the user ends up with a useless text file in the upper layer. Similar behavior is observed in most virtual filesystems I tested. I also could not just leave them because overlayfs does not traverse past mount points in the lower layer, making essential system directories invisible to the shell. The best solution I found was to just bind these directories directly. However this disabled rollback in these directories since modifications were done directly to the host filesystem.
 
-Currently, I am working on an update where the directories to be overlaid or bound will be customizable via a configuration.
+Currently, I am working on an update where the directories to be overlaid or bound will be customizable via a configuration file.
 
 ## Current Limitations and Future Work - V1
 
